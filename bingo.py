@@ -13,7 +13,7 @@ screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Bingo Rogue")
 
 # --- Colors ---
-COLOR_BG = (24, 28, 36)
+COLOR_BG = (18, 22, 30)
 COLOR_CARD = (38, 45, 58)
 COLOR_TEXT = (240, 240, 240)
 COLOR_ACCENT = (255, 198, 0)
@@ -30,34 +30,10 @@ COLOR_MOD_YELLOW = (200, 160, 30)
 # --- Fonts ---
 FONT_MAIN = pygame.font.SysFont("Arial", 22, bold=True)
 FONT_LARGE = pygame.font.SysFont("Arial", 36, bold=True)
-FONT_TITLE = pygame.font.SysFont("Arial", 56, bold=True)
+FONT_TITLE = pygame.font.SysFont("Arial", 60, bold=True)
 FONT_SMALL = pygame.font.SysFont("Arial", 16)
 FONT_POPUP = pygame.font.SysFont("Arial", 26, bold=True)
 FONT_BADGE = pygame.font.SysFont("Arial", 11, bold=True)
-
-
-class LobbyParticle:
-    """ละอองพลังงานเรืองแสงบนหน้า Lobby"""
-    def __init__(self):
-        self.reset()
-        self.y = random.randint(0, SCREEN_HEIGHT)
-
-    def reset(self):
-        self.x = random.randint(0, SCREEN_WIDTH)
-        self.y = SCREEN_HEIGHT + random.randint(10, 50)
-        self.radius = random.randint(2, 5)
-        self.speed = random.uniform(0.5, 1.8)
-        self.alpha = random.randint(80, 200)
-
-    def update(self):
-        self.y -= self.speed
-        if self.y < -10:
-            self.reset()
-
-    def draw(self, surface):
-        s = pygame.Surface((self.radius * 2, self.radius * 2), pygame.SRCALPHA)
-        pygame.draw.circle(s, (255, 198, 0, int(self.alpha)), (self.radius, self.radius), self.radius)
-        surface.blit(s, (self.x - self.radius, self.y - self.radius))
 
 
 class FloatingText:
@@ -269,29 +245,47 @@ class ShopItem:
         self.data = data
 
 
-class DivisibleSevenJoker:
+class DivisibleSevenCap:
     def __init__(self):
-        self.id = "DIV_7"
-        self.name = "Lucky Div 7"
+        self.id = "DIV_7_CAP"
+        self.name = "Lucky Div 7 Cap"
         self.description = "+25 Score if marked ball is divisible by 7"
         self.cost = 6
         self.count = 1
+        self.color = (231, 76, 60)
 
     def apply_effect(self, state, ball):
         if ball % 7 == 0:
             state["chips"] += 25 * self.count
 
 
-class CrosshairJoker:
+class CrosshairCap:
     def __init__(self):
-        self.id = "CROSSHAIR"
-        self.name = "Crosshair"
+        self.id = "CROSSHAIR_CAP"
+        self.name = "Crosshair Cap"
         self.description = "+50 Score on every Marked Tile"
         self.cost = 6
         self.count = 1
+        self.color = (52, 152, 219)
 
     def apply_effect(self, state, ball):
         state["chips"] += 50 * self.count
+
+
+def draw_bottle_cap_icon(surface, center_x, center_y, radius, color):
+    """วาดฝาขวดเหล็กขอบหยัก"""
+    num_teeth = 16
+    points = []
+    for i in range(num_teeth * 2):
+        angle = i * (2 * math.pi / (num_teeth * 2))
+        r = radius if i % 2 == 0 else radius - int(radius * 0.12)
+        x = center_x + math.cos(angle) * r
+        y = center_y + math.sin(angle) * r
+        points.append((x, y))
+
+    pygame.draw.polygon(surface, (200, 200, 200), points)
+    pygame.draw.circle(surface, color, (center_x, center_y), radius - int(radius * 0.15))
+    pygame.draw.circle(surface, (255, 255, 255), (center_x, center_y), radius - int(radius * 0.28), width=2)
 
 
 class GameManager:
@@ -299,14 +293,13 @@ class GameManager:
         self.game_state = "LOBBY"
         self.ante = 1
         self.money = 15
-        self.jokers = [DivisibleSevenJoker()]
+        self.bottle_caps = [DivisibleSevenCap()]
         self.bag_filler_count = 16
         self.board_mods = {}
         self.shop_items = []
         self.floating_texts = []
         
-        # --- Lobby Dynamic FX ---
-        self.lobby_particles = [LobbyParticle() for _ in range(35)]
+        self.grid_offset_x = 0
         self.grid_offset_y = 0
 
         self.shake_timer = 0
@@ -316,7 +309,7 @@ class GameManager:
     def start_new_game(self):
         self.ante = 1
         self.money = 15
-        self.jokers = [DivisibleSevenJoker()]
+        self.bottle_caps = [DivisibleSevenCap()]
         self.bag_filler_count = 16
         self.board_mods = {}
         self.game_state = "PLAYING"
@@ -339,9 +332,9 @@ class GameManager:
 
     def refresh_shop(self):
         pool = [
-            ShopItem("Crosshair Joker", "+50 Score on every mark", 6, "JOKER", CrosshairJoker()),
-            ShopItem("Lucky Div 7 Joker", "+25 Score on div by 7", 6, "JOKER", DivisibleSevenJoker()),
-            ShopItem("Trim Deck (-4 Balls)", "Reduce bag size (Guaranteed Board)", 5, "DECK_TRIM"),
+            ShopItem("Crosshair Cap", "+50 Score on every mark", 6, "CAP", CrosshairCap()),
+            ShopItem("Lucky Div 7 Cap", "+25 Score on div by 7", 6, "CAP", DivisibleSevenCap()),
+            ShopItem("Trim Bag (-4 Balls)", "Reduce bag size (Guaranteed Board)", 5, "BAG_TRIM"),
             ShopItem("Red Tile Mod", "Change 1 random tile to Red (+5 Mult)", 4, "TILE_MOD", "RED"),
             ShopItem("Blue Tile Mod", "Change 1 random tile to Blue (2x Score)", 4, "TILE_MOD", "BLUE"),
             ShopItem("Yellow Tile Mod", "Change 1 random tile to Yellow (+$2 Money)", 4, "TILE_MOD", "YELLOW"),
@@ -372,7 +365,7 @@ class GameManager:
 
     def handle_click(self, pos):
         if self.game_state == "LOBBY":
-            start_btn = pygame.Rect(350, 420, 300, 70)
+            start_btn = pygame.Rect(350, 480, 300, 70)
             if start_btn.collidepoint(pos):
                 self.start_new_game()
 
@@ -423,15 +416,15 @@ class GameManager:
         if self.money >= item.cost:
             self.money -= item.cost
             
-            if item.item_type == "JOKER":
-                new_joker = item.data
-                existing = next((j for j in self.jokers if j.id == new_joker.id), None)
+            if item.item_type == "CAP":
+                new_cap = item.data
+                existing = next((c for c in self.bottle_caps if c.id == new_cap.id), None)
                 if existing:
                     existing.count += 1
                 else:
-                    self.jokers.append(new_joker)
+                    self.bottle_caps.append(new_cap)
                     
-            elif item.item_type == "DECK_TRIM":
+            elif item.item_type == "BAG_TRIM":
                 self.bag_filler_count = max(0, self.bag_filler_count - 4)
             elif item.item_type == "TILE_MOD":
                 available_coords = []
@@ -466,8 +459,8 @@ class GameManager:
             self.money += 2
 
         state = {"chips": base_chips, "mult": mult}
-        for joker in self.jokers:
-            joker.apply_effect(state, ball)
+        for cap in self.bottle_caps:
+            cap.apply_effect(state, ball)
 
         scored = state["chips"] * state["mult"]
         self.score += scored
@@ -520,37 +513,54 @@ class GameManager:
         target_screen.blit(self.render_surface, (offset_x, offset_y))
 
     def draw_lobby_screen(self, surface):
-        """พื้นหลัง Lobby สวยงาม มีมิติ (Dynamic Neon Grid & Particles)"""
-        # 1. วาดเส้นกริดเคลื่อนไหว (Moving Grid Lines)
-        self.grid_offset_y = (self.grid_offset_y + 0.5) % 40
-        grid_color = (35, 45, 60)
-        
-        for x in range(0, SCREEN_WIDTH, 40):
-            pygame.draw.line(surface, grid_color, (x, 0), (x, SCREEN_HEIGHT))
-        for y in range(int(self.grid_offset_y) - 40, SCREEN_HEIGHT, 40):
-            pygame.draw.line(surface, grid_color, (0, y), (SCREEN_WIDTH, y))
+        grid_size = 50
+        self.grid_offset_x = (self.grid_offset_x + 0.6) % grid_size
+        self.grid_offset_y = (self.grid_offset_y + 0.6) % grid_size
 
-        # 2. วาดละอองเรืองแสง (Glowing Particles)
-        for p in self.lobby_particles:
-            p.update()
-            p.draw(surface)
+        surface.fill((20, 24, 34))
+        grid_line_color = (36, 44, 62)
 
-        # 3. วาดการ์ดโปร่งแสงตรงกลาง (Central Vignette Panel)
-        center_panel = pygame.Surface((600, 350), pygame.SRCALPHA)
-        center_panel.fill((18, 22, 30, 220))
-        surface.blit(center_panel, (200, 175))
-        pygame.draw.rect(surface, COLOR_ACCENT, (200, 175, 600, 350), width=2, border_radius=16)
+        start_x = int(self.grid_offset_x) - grid_size
+        for x in range(start_x, SCREEN_WIDTH + grid_size, grid_size):
+            pygame.draw.line(surface, grid_line_color, (x, 0), (x, SCREEN_HEIGHT), width=2)
 
-        # 4. แสดงชื่อเกม "BINGO ROGUE"
-        title = FONT_TITLE.render("BINGO ROGUE", True, COLOR_ACCENT)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 270))
-        surface.blit(title, title_rect)
+        start_y = int(self.grid_offset_y) - grid_size
+        for y in range(start_y, SCREEN_HEIGHT + grid_size, grid_size):
+            pygame.draw.line(surface, grid_line_color, (0, y), (SCREEN_WIDTH, y), width=2)
 
-        # 5. วาดปุ่มกดเริ่มเกม (START GAME)
-        start_btn = pygame.Rect(350, 420, 300, 70)
+        ticks = pygame.time.get_ticks() * 0.0015
+        cap_size = 220
+        cap_surf = pygame.Surface((cap_size, cap_size), pygame.SRCALPHA)
+        center_c = cap_size // 2
+        radius = 85
+
+        draw_bottle_cap_icon(cap_surf, center_c, center_c, radius, (231, 76, 60))
+
+        star_points = []
+        for i in range(5 * 2):
+            ang = i * (math.pi / 5) - math.pi / 2
+            r_val = 32 if i % 2 == 0 else 14
+            star_points.append((center_c + math.cos(ang) * r_val, center_c + math.sin(ang) * r_val))
+        pygame.draw.polygon(cap_surf, COLOR_ACCENT, star_points)
+
+        tilt_angle = math.sin(ticks * 2) * 12
+        float_y = math.sin(ticks * 2.5) * 10
+
+        rotated_cap = pygame.transform.rotate(cap_surf, tilt_angle)
+        cap_rect = rotated_cap.get_rect(center=(SCREEN_WIDTH // 2, 180 + float_y))
+        surface.blit(rotated_cap, cap_rect)
+
+        title_shadow = FONT_TITLE.render("BINGO ROGUE", True, (0, 0, 0))
+        title_txt = FONT_TITLE.render("BINGO ROGUE", True, COLOR_ACCENT)
+
+        surface.blit(title_shadow, title_shadow.get_rect(center=(SCREEN_WIDTH // 2 + 4, 344)))
+        surface.blit(title_txt, title_txt.get_rect(center=(SCREEN_WIDTH // 2, 340)))
+
+        start_btn = pygame.Rect(350, 480, 300, 70)
         mouse_pos = pygame.mouse.get_pos()
         btn_color = (41, 128, 185) if start_btn.collidepoint(mouse_pos) else COLOR_BUTTON
-        
+
+        pygame.draw.rect(surface, (0, 0, 0), (start_btn.x + 4, start_btn.y + 4, start_btn.width, start_btn.height), border_radius=12)
         pygame.draw.rect(surface, btn_color, start_btn, border_radius=12)
         pygame.draw.rect(surface, (255, 255, 255), start_btn, width=2, border_radius=12)
 
@@ -583,21 +593,23 @@ class GameManager:
         btn_rect = btn_txt.get_rect(center=self.draw_button.center)
         surface.blit(btn_txt, btn_rect)
 
-        joker_title = FONT_MAIN.render("Active Jokers:", True, COLOR_ACCENT)
-        surface.blit(joker_title, (540, 160))
-        for i, joker in enumerate(self.jokers):
-            j_rect = pygame.Rect(540, 200 + i * 70, 380, 60)
-            pygame.draw.rect(surface, COLOR_CARD, j_rect, border_radius=8)
+        cap_title = FONT_MAIN.render("Active Bottle Caps:", True, COLOR_ACCENT)
+        surface.blit(cap_title, (540, 160))
+        for i, cap in enumerate(self.bottle_caps):
+            c_rect = pygame.Rect(540, 200 + i * 70, 380, 60)
+            pygame.draw.rect(surface, COLOR_CARD, c_rect, border_radius=8)
             
-            count_str = f" (x{joker.count})" if joker.count > 1 else ""
-            name_txt = FONT_MAIN.render(f"{joker.name}{count_str}", True, COLOR_ACCENT)
-            desc_txt = FONT_SMALL.render(joker.description, True, COLOR_TEXT)
-            surface.blit(name_txt, (j_rect.x + 10, j_rect.y + 8))
-            surface.blit(desc_txt, (j_rect.x + 10, j_rect.y + 32))
+            draw_bottle_cap_icon(surface, c_rect.x + 30, c_rect.centery, 18, cap.color)
+
+            count_str = f" (x{cap.count})" if cap.count > 1 else ""
+            name_txt = FONT_MAIN.render(f"{cap.name}{count_str}", True, COLOR_ACCENT)
+            desc_txt = FONT_SMALL.render(cap.description, True, COLOR_TEXT)
+            surface.blit(name_txt, (c_rect.x + 60, c_rect.y + 8))
+            surface.blit(desc_txt, (c_rect.x + 60, c_rect.y + 32))
 
     def draw_shop_screen(self, surface):
         title = FONT_TITLE.render("STAGE CLEAR - SHOP", True, COLOR_GREEN)
-        surface.blit(title, (230, 60))
+        surface.blit(title, (200, 60))
 
         money_txt = FONT_LARGE.render(f"Current Money: ${self.money}", True, COLOR_ACCENT)
         surface.blit(money_txt, (360, 140))

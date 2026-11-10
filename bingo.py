@@ -1,309 +1,690 @@
 import pygame
 import random
 import sys
+import math
 
-# --- ตั้งค่าสีและขนาด ---
-SCREEN_WIDTH = 900
-SCREEN_HEIGHT = 650
-GRID_SIZE = 5
-CELL_SIZE = 75
-GRID_X = 50
-GRID_Y = 180
+# --- Pygame Setup ---
+pygame.init()
+pygame.font.init()
 
-# โทนสี UI หลัก
-BG_COLOR = (245, 247, 250)
-PANEL_BG = (255, 255, 255)
-TEXT_COLOR = (40, 40, 40)
-HEADER_COLOR = (44, 62, 80)
-ACCENT_BLUE = (52, 152, 219)
-ACCENT_RED = (231, 76, 60)
-ACCENT_PURPLE = (142, 68, 173)
-CELL_BG = (236, 240, 241)
-CELL_TEXT = (40, 40, 40)
-MARKED_TEXT = (255, 255, 255)
+SCREEN_WIDTH = 1000
+SCREEN_HEIGHT = 700
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Bingo Rogue")
 
-# 🎨 สีประจำคอลัมน์ B - I - N - G - O
-BINGO_COLORS = [
-    (220, 53, 69),   # B: สีแดง
-    (235, 130, 0),   # I: สีส้ม
-    (212, 143, 24),  # N: สีเหลืองอำพัน
-    (40, 167, 69),   # G: สีเขียว
-    (0, 123, 255)    # O: สีน้ำเงิน
-]
+# --- Colors ---
+COLOR_BG = (24, 28, 36)
+COLOR_CARD = (38, 45, 58)
+COLOR_TEXT = (240, 240, 240)
+COLOR_ACCENT = (255, 198, 0)
+COLOR_MARKED = (46, 204, 113)
+COLOR_BALL = (231, 76, 60)
+COLOR_BUTTON = (52, 152, 219)
+COLOR_RED = (231, 76, 60)
+COLOR_GREEN = (46, 204, 113)
+
+COLOR_MOD_RED = (180, 50, 50)
+COLOR_MOD_BLUE = (40, 110, 180)
+COLOR_MOD_YELLOW = (200, 160, 30)
+
+# --- Fonts ---
+FONT_MAIN = pygame.font.SysFont("Arial", 22, bold=True)
+FONT_LARGE = pygame.font.SysFont("Arial", 36, bold=True)
+FONT_TITLE = pygame.font.SysFont("Arial", 56, bold=True)
+FONT_SMALL = pygame.font.SysFont("Arial", 16)
+FONT_POPUP = pygame.font.SysFont("Arial", 26, bold=True)
+FONT_BADGE = pygame.font.SysFont("Arial", 11, bold=True)
 
 
-class BingoCard:
-    """จัดการข้อมูลตารางบิงโกและการตรวจผลชนะ"""
+class LobbyParticle:
+    """ละอองพลังงานเรืองแสงบนหน้า Lobby"""
     def __init__(self):
-        self.grid = [[0 for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
-        self.marked = [[False for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
-        self.reset_card()
+        self.reset()
+        self.y = random.randint(0, SCREEN_HEIGHT)
 
-    def reset_card(self):
-        self.marked = [[False for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
-        ranges = [(1, 15), (16, 30), (31, 45), (46, 60), (61, 75)]
-        for col in range(GRID_SIZE):
-            low, high = ranges[col]
-            nums = random.sample(range(low, high + 1), GRID_SIZE)
-            for row in range(GRID_SIZE):
-                self.grid[row][col] = nums[row]
+    def reset(self):
+        self.x = random.randint(0, SCREEN_WIDTH)
+        self.y = SCREEN_HEIGHT + random.randint(10, 50)
+        self.radius = random.randint(2, 5)
+        self.speed = random.uniform(0.5, 1.8)
+        self.alpha = random.randint(80, 200)
 
-        self.grid[2][2] = "FREE"
-        self.marked[2][2] = True
+    def update(self):
+        self.y -= self.speed
+        if self.y < -10:
+            self.reset()
+
+    def draw(self, surface):
+        s = pygame.Surface((self.radius * 2, self.radius * 2), pygame.SRCALPHA)
+        pygame.draw.circle(s, (255, 198, 0, int(self.alpha)), (self.radius, self.radius), self.radius)
+        surface.blit(s, (self.x - self.radius, self.y - self.radius))
+
+
+class FloatingText:
+    def __init__(self, text, x, y, color=COLOR_ACCENT):
+        self.text = text
+        self.x = x
+        self.y = y
+        self.color = color
+        self.alpha = 255
+        self.lifetime = 65
+        self.speed_y = -1.5
+
+    def update(self):
+        self.y += self.speed_y
+        self.alpha -= 255 / self.lifetime
+        if self.alpha < 0:
+            self.alpha = 0
+
+    def draw(self, surface):
+        if self.alpha > 0:
+            txt_surf = FONT_POPUP.render(self.text, True, self.color)
+            txt_surf.set_alpha(int(self.alpha))
+            txt_rect = txt_surf.get_rect(center=(self.x, self.y))
+            surface.blit(txt_surf, txt_rect)
+
+
+class Tile:
+    def __init__(self, x, y, size, number, r, c, is_free=False):
+        self.rect = pygame.Rect(x, y, size, size)
+        self.number = number
+        self.row_idx = r
+        self.col_idx = c
+        self.is_marked = is_free
+        self.is_free = is_free
+        self.is_in_bingo = False
+        self.mod = None
+
+    def draw(self, surface):
+        if self.is_in_bingo:
+            ticks = pygame.time.get_ticks()
+            pulse = (math.sin(ticks * 0.008) + 1) / 2
+            r_c = int(46 + (255 - 46) * pulse)
+            g_c = int(204 + (198 - 204) * pulse)
+            b_c = int(113 + (0 - 113) * pulse)
+            color = (r_c, g_c, b_c)
+            border_color = (255, 255, 255)
+            border_width = 3
+        elif self.is_marked:
+            color = COLOR_MARKED
+            border_color = (70, 80, 95)
+            border_width = 2
+        else:
+            if self.mod == "RED":
+                color = COLOR_MOD_RED
+                border_color = (255, 120, 120)
+                border_width = 3
+            elif self.mod == "BLUE":
+                color = COLOR_MOD_BLUE
+                border_color = (120, 200, 255)
+                border_width = 3
+            elif self.mod == "YELLOW":
+                color = COLOR_MOD_YELLOW
+                border_color = (255, 235, 120)
+                border_width = 3
+            else:
+                color = COLOR_CARD
+                border_color = (70, 80, 95)
+                border_width = 2
+
+        pygame.draw.rect(surface, color, self.rect, border_radius=8)
+        pygame.draw.rect(surface, border_color, self.rect, width=border_width, border_radius=8)
+
+        if self.mod and not self.is_marked and not self.is_free:
+            badge_text = ""
+            if self.mod == "RED":
+                badge_text = "+5 MULT"
+            elif self.mod == "BLUE":
+                badge_text = "2X SCORE"
+            elif self.mod == "YELLOW":
+                badge_text = "+$2 MON"
+
+            badge_surf = FONT_BADGE.render(badge_text, True, (255, 255, 255))
+            badge_rect = badge_surf.get_rect(center=(self.rect.centerx, self.rect.top + 12))
+            surface.blit(badge_surf, badge_rect)
+
+        txt = "FREE" if self.is_free else str(self.number)
+        txt_surf = FONT_MAIN.render(txt, True, COLOR_TEXT)
+        offset_y = 6 if (self.mod and not self.is_marked and not self.is_free) else 0
+        txt_rect = txt_surf.get_rect(center=(self.rect.centerx, self.rect.centery + offset_y))
+        surface.blit(txt_surf, txt_rect)
+
+
+class Board:
+    def __init__(self, start_x, start_y, existing_mods, size=5, tile_size=75, gap=8):
+        self.size = size
+        self.grid = []
+        
+        col_ranges = [(1, 15), (16, 30), (31, 45), (46, 60), (61, 75)]
+        board_numbers = []
+        for r in col_ranges:
+            nums = random.sample(range(r[0], r[1] + 1), 5)
+            board_numbers.append(nums)
+
+        for row in range(size):
+            row_tiles = []
+            for col in range(size):
+                x = start_x + col * (tile_size + gap)
+                y = start_y + row * (tile_size + gap)
+                
+                is_free = (row == 2 and col == 2)
+                num = 0 if is_free else board_numbers[col][row]
+                
+                tile = Tile(x, y, tile_size, num, row, col, is_free=is_free)
+                if (row, col) in existing_mods:
+                    tile.mod = existing_mods[(row, col)]
+
+                row_tiles.append(tile)
+            self.grid.append(row_tiles)
+
+    def draw(self, surface):
+        for row in self.grid:
+            for tile in row:
+                tile.draw(surface)
+
+    def get_board_numbers(self):
+        numbers = []
+        for row in self.grid:
+            for tile in row:
+                if not tile.is_free:
+                    numbers.append(tile.number)
+        return numbers
 
     def mark_number(self, number):
-        """กาตัวเลขโดยอัตโนมัติ"""
-        for r in range(GRID_SIZE):
-            for c in range(GRID_SIZE):
-                if self.grid[r][c] == number:
-                    self.marked[r][c] = True
+        for row in self.grid:
+            for tile in row:
+                if tile.number == number and not tile.is_marked:
+                    tile.is_marked = True
+                    return tile
+        return None
 
-    def try_mark_cell(self, row, col, called_numbers):
-        """ผู้เล่นกดกาเอง (กาได้เฉพาะเลขที่สุ่มออกแล้ว)"""
-        number = self.grid[row][col]
-        if number in called_numbers and not self.marked[row][col]:
-            self.marked[row][col] = True
-            return True
-        return False
+    def check_bingo_lines(self):
+        lines = 0
+        bingo_tiles = set()
 
-    def check_bingo(self):
-        for r in range(GRID_SIZE):
-            if all(self.marked[r][c] for c in range(GRID_SIZE)):
-                return True
-        for c in range(GRID_SIZE):
-            if all(self.marked[r][c] for r in range(GRID_SIZE)):
-                return True
-        if all(self.marked[i][i] for i in range(GRID_SIZE)):
-            return True
-        if all(self.marked[i][GRID_SIZE - 1 - i] for i in range(GRID_SIZE)):
-            return True
-        return False
+        for r in range(self.size):
+            if all(self.grid[r][c].is_marked for c in range(self.size)):
+                lines += 1
+                for c in range(self.size):
+                    bingo_tiles.add(self.grid[r][c])
+
+        for c in range(self.size):
+            if all(self.grid[r][c].is_marked for r in range(self.size)):
+                lines += 1
+                for r in range(self.size):
+                    bingo_tiles.add(self.grid[r][c])
+
+        if all(self.grid[i][i].is_marked for i in range(self.size)):
+            lines += 1
+            for i in range(self.size):
+                bingo_tiles.add(self.grid[i][i])
+
+        if all(self.grid[i][self.size - 1 - i].is_marked for i in range(self.size)):
+            lines += 1
+            for i in range(self.size):
+                bingo_tiles.add(self.grid[i][self.size - 1 - i])
+
+        for tile in bingo_tiles:
+            tile.is_in_bingo = True
+
+        return lines
 
 
-class BallCaller:
-    """สุ่มและบันทึกประวัติลูกบอลตัวเลข"""
-    def __init__(self):
+class BallBag:
+    def __init__(self, guaranteed_numbers, filler_count=16):
+        self.guaranteed_numbers = guaranteed_numbers
+        self.filler_count = filler_count
         self.reset()
 
     def reset(self):
-        self.pool = list(range(1, 76))
-        random.shuffle(self.pool)
-        self.called_numbers = []
-        self.current_ball = None
-
-    def draw_ball(self):
-        if self.pool:
-            self.current_ball = self.pool.pop()
-            self.called_numbers.append(self.current_ball)
-            return self.current_ball
-        return None
-
-    def get_ball_label(self, ball):
-        if ball is None:
-            return "-"
-        if 1 <= ball <= 15:
-            prefix = "B"
-        elif 16 <= ball <= 30:
-            prefix = "I"
-        elif 31 <= ball <= 45:
-            prefix = "N"
-        elif 46 <= ball <= 60:
-            prefix = "G"
-        elif 61 <= ball <= 75:
-            prefix = "O"
-        else:
-            prefix = ""
-        return f"{prefix}{ball}"
-
-    def get_ball_color(self, ball):
-        if ball is None:
-            return (180, 180, 180)
-        if 1 <= ball <= 15:
-            return BINGO_COLORS[0]
-        elif 16 <= ball <= 30:
-            return BINGO_COLORS[1]
-        elif 31 <= ball <= 45:
-            return BINGO_COLORS[2]
-        elif 46 <= ball <= 60:
-            return BINGO_COLORS[3]
-        elif 61 <= ball <= 75:
-            return BINGO_COLORS[4]
-        return (180, 180, 180)
-
-
-class Button:
-    """ส่วนประกอบ UI ปุ่มกด"""
-    def __init__(self, x, y, width, height, text, color, hover_color):
-        self.rect = pygame.Rect(x, y, width, height)
-        self.text = text
-        self.color = color
-        self.hover_color = hover_color
-
-    def draw(self, surface, font):
-        mouse_pos = pygame.mouse.get_pos()
-        color = self.hover_color if self.rect.collidepoint(mouse_pos) else self.color
+        pool = list(self.guaranteed_numbers)
+        other_numbers = [n for n in range(1, 76) if n not in pool]
         
-        pygame.draw.rect(surface, color, self.rect, border_radius=10)
-        pygame.draw.rect(surface, HEADER_COLOR, self.rect, width=2, border_radius=10)
+        count = min(len(other_numbers), max(0, self.filler_count))
+        filler_numbers = random.sample(other_numbers, count)
         
-        text_surf = font.render(self.text, True, (255, 255, 255))
-        text_rect = text_surf.get_rect(center=self.rect.center)
-        surface.blit(text_surf, text_rect)
+        pool.extend(filler_numbers)
+        random.shuffle(pool)
+        
+        self.balls = pool
+        self.current_drawn = []
 
-    def is_clicked(self, event):
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            return self.rect.collidepoint(event.pos)
-        return False
+    def draw_balls(self, count=5):
+        self.current_drawn = []
+        for _ in range(count):
+            if self.balls:
+                self.current_drawn.append(self.balls.pop())
+
+    def remove_ball(self, ball):
+        if ball in self.current_drawn:
+            self.current_drawn.remove(ball)
 
 
-class BingoGame:
-    """ควบคุม Game Loop และการวาด UI ทั้งหมด"""
+class ShopItem:
+    def __init__(self, name, description, cost, item_type, data=None):
+        self.name = name
+        self.description = description
+        self.cost = cost
+        self.item_type = item_type
+        self.data = data
+
+
+class DivisibleSevenJoker:
     def __init__(self):
-        pygame.init()
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption("Bingo Game - Auto/Manual Mode Edition")
-        self.clock = pygame.time.Clock()
+        self.id = "DIV_7"
+        self.name = "Lucky Div 7"
+        self.description = "+25 Score if marked ball is divisible by 7"
+        self.cost = 6
+        self.count = 1
 
-        self.title_font = pygame.font.SysFont("arial", 38, bold=True)
-        self.font = pygame.font.SysFont("arial", 20, bold=True)
-        self.small_font = pygame.font.SysFont("arial", 18)
+    def apply_effect(self, state, ball):
+        if ball % 7 == 0:
+            state["chips"] += 25 * self.count
 
-        self.card = BingoCard()
-        self.caller = BallCaller()
-        self.is_won = False
-        self.auto_mode = False  # เริ่มต้นเป็นโหมดกดเอง (Manual)
 
-        # จัดตำแหน่งปุ่มกด 3 ปุ่มด้านขวา
-        self.btn_draw = Button(500, 180, 105, 45, "Draw", ACCENT_BLUE, (41, 128, 185))
-        self.btn_mode = Button(612, 180, 115, 45, "Auto: OFF", ACCENT_PURPLE, (125, 60, 152))
-        self.btn_reset = Button(734, 180, 105, 45, "New Game", ACCENT_RED, (192, 57, 43))
+class CrosshairJoker:
+    def __init__(self):
+        self.id = "CROSSHAIR"
+        self.name = "Crosshair"
+        self.description = "+50 Score on every Marked Tile"
+        self.cost = 6
+        self.count = 1
 
-    def run(self):
-        running = True
-        while running:
-            self.clock.tick(60)
-            running = self.handle_events()
-            self.draw()
-        pygame.quit()
-        sys.exit()
+    def apply_effect(self, state, ball):
+        state["chips"] += 50 * self.count
 
-    def handle_events(self):
+
+class GameManager:
+    def __init__(self):
+        self.game_state = "LOBBY"
+        self.ante = 1
+        self.money = 15
+        self.jokers = [DivisibleSevenJoker()]
+        self.bag_filler_count = 16
+        self.board_mods = {}
+        self.shop_items = []
+        self.floating_texts = []
+        
+        # --- Lobby Dynamic FX ---
+        self.lobby_particles = [LobbyParticle() for _ in range(35)]
+        self.grid_offset_y = 0
+
+        self.shake_timer = 0
+        self.shake_intensity = 0
+        self.render_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+
+    def start_new_game(self):
+        self.ante = 1
+        self.money = 15
+        self.jokers = [DivisibleSevenJoker()]
+        self.bag_filler_count = 16
+        self.board_mods = {}
+        self.game_state = "PLAYING"
+        self.reset_round()
+
+    def reset_round(self):
+        self.board = Board(start_x=80, start_y=160, existing_mods=self.board_mods)
+        board_nums = self.board.get_board_numbers()
+        self.bag = BallBag(board_nums, filler_count=self.bag_filler_count)
+        
+        self.score = 0
+        self.target_score = int(1000 * (1.5 ** (self.ante - 1)))
+        self.hands_left = 6
+        self.last_bingo_count = 0
+        self.draw_button = pygame.Rect(540, 520, 380, 50)
+        self.drawn_ball_rects = []
+        self.floating_texts.clear()
+        self.refresh_shop()
+        self.roll_balls()
+
+    def refresh_shop(self):
+        pool = [
+            ShopItem("Crosshair Joker", "+50 Score on every mark", 6, "JOKER", CrosshairJoker()),
+            ShopItem("Lucky Div 7 Joker", "+25 Score on div by 7", 6, "JOKER", DivisibleSevenJoker()),
+            ShopItem("Trim Deck (-4 Balls)", "Reduce bag size (Guaranteed Board)", 5, "DECK_TRIM"),
+            ShopItem("Red Tile Mod", "Change 1 random tile to Red (+5 Mult)", 4, "TILE_MOD", "RED"),
+            ShopItem("Blue Tile Mod", "Change 1 random tile to Blue (2x Score)", 4, "TILE_MOD", "BLUE"),
+            ShopItem("Yellow Tile Mod", "Change 1 random tile to Yellow (+$2 Money)", 4, "TILE_MOD", "YELLOW"),
+        ]
+        random.shuffle(pool)
+        self.shop_items = pool[:2]
+
+    def trigger_shake(self, duration=15, intensity=8):
+        self.shake_timer = duration
+        self.shake_intensity = intensity
+
+    def roll_balls(self):
+        if self.hands_left > 0:
+            self.bag.draw_balls(5)
+            self.hands_left -= 1
+            self.update_ball_ui()
+            self.check_game_over()
+
+    def update_ball_ui(self):
+        self.drawn_ball_rects = []
+        start_x = 540
+        start_y = 420
+        size = 60
+        gap = 15
+        for i, ball in enumerate(self.bag.current_drawn):
+            rect = pygame.Rect(start_x + i * (size + gap), start_y, size, size)
+            self.drawn_ball_rects.append((rect, ball))
+
+    def handle_click(self, pos):
+        if self.game_state == "LOBBY":
+            start_btn = pygame.Rect(350, 420, 300, 70)
+            if start_btn.collidepoint(pos):
+                self.start_new_game()
+
+        elif self.game_state == "PLAYING":
+            if self.draw_button.collidepoint(pos):
+                self.roll_balls()
+                return
+
+            for rect, ball in self.drawn_ball_rects:
+                if rect.collidepoint(pos):
+                    marked_tile = self.board.mark_number(ball)
+                    if marked_tile:
+                        self.bag.remove_ball(ball)
+                        self.update_ball_ui()
+                        self.score_marked_tile(ball, marked_tile)
+                        self.check_game_over()
+                    break
+
+        elif self.game_state == "SHOP":
+            btn1 = pygame.Rect(180, 240, 300, 140)
+            if btn1.collidepoint(pos) and len(self.shop_items) > 0:
+                self.buy_item(0)
+
+            btn2 = pygame.Rect(520, 240, 300, 140)
+            if btn2.collidepoint(pos) and len(self.shop_items) > 1:
+                self.buy_item(1)
+
+            next_btn = pygame.Rect(350, 480, 300, 60)
+            if next_btn.collidepoint(pos):
+                self.ante += 1
+                if self.ante > 5:
+                    self.game_state = "RUN_WIN"
+                else:
+                    self.game_state = "PLAYING"
+                    self.reset_round()
+
+        elif self.game_state in ["GAME_OVER", "RUN_WIN"]:
+            retry_btn = pygame.Rect(190, 400, 280, 60)
+            if retry_btn.collidepoint(pos):
+                self.start_new_game()
+
+            menu_btn = pygame.Rect(530, 400, 280, 60)
+            if menu_btn.collidepoint(pos):
+                self.game_state = "LOBBY"
+
+    def buy_item(self, index):
+        item = self.shop_items[index]
+        if self.money >= item.cost:
+            self.money -= item.cost
+            
+            if item.item_type == "JOKER":
+                new_joker = item.data
+                existing = next((j for j in self.jokers if j.id == new_joker.id), None)
+                if existing:
+                    existing.count += 1
+                else:
+                    self.jokers.append(new_joker)
+                    
+            elif item.item_type == "DECK_TRIM":
+                self.bag_filler_count = max(0, self.bag_filler_count - 4)
+            elif item.item_type == "TILE_MOD":
+                available_coords = []
+                for r in range(5):
+                    for c in range(5):
+                        if (r, c) != (2, 2) and (r, c) not in self.board_mods:
+                            available_coords.append((r, c))
+
+                if available_coords:
+                    chosen_coord = random.choice(available_coords)
+                    self.board_mods[chosen_coord] = item.data
+                    self.board.grid[chosen_coord[0]][chosen_coord[1]].mod = item.data
+
+            self.shop_items.pop(index)
+
+    def score_marked_tile(self, ball, tile):
+        base_chips = 50
+        current_bingos = self.board.check_bingo_lines()
+        
+        if current_bingos > self.last_bingo_count:
+            new_lines = current_bingos - self.last_bingo_count
+            self.trigger_shake(duration=15 + (new_lines * 5), intensity=6 + (new_lines * 3))
+            self.last_bingo_count = current_bingos
+
+        mult = 1 + current_bingos
+
+        if tile.mod == "RED":
+            mult += 5
+        elif tile.mod == "BLUE":
+            base_chips *= 2
+        elif tile.mod == "YELLOW":
+            self.money += 2
+
+        state = {"chips": base_chips, "mult": mult}
+        for joker in self.jokers:
+            joker.apply_effect(state, ball)
+
+        scored = state["chips"] * state["mult"]
+        self.score += scored
+
+        color = COLOR_ACCENT if (current_bingos > 0 or tile.mod) else COLOR_GREEN
+        popup_str = f"+{scored} ({state['chips']} x {state['mult']})"
+        popup = FloatingText(popup_str, tile.rect.centerx, tile.rect.centery, color=color)
+        self.floating_texts.append(popup)
+
+    def check_game_over(self):
+        if self.score >= self.target_score:
+            reward = 4 + self.hands_left
+            self.money += reward
+            self.game_state = "SHOP"
+            return
+
+        board_numbers = [tile.number for row in self.board.grid for tile in row if not tile.is_marked]
+        has_valid_move = any(ball in board_numbers for ball in self.bag.current_drawn)
+
+        if self.hands_left <= 0 and not has_valid_move and self.score < self.target_score:
+            self.game_state = "GAME_OVER"
+
+    def draw(self, target_screen):
+        self.render_surface.fill(COLOR_BG)
+
+        if self.game_state == "LOBBY":
+            self.draw_lobby_screen(self.render_surface)
+        elif self.game_state == "PLAYING":
+            self.draw_playing_screen(self.render_surface)
+        elif self.game_state == "SHOP":
+            self.draw_shop_screen(self.render_surface)
+        elif self.game_state == "GAME_OVER":
+            self.draw_game_over_screen(self.render_surface)
+        elif self.game_state == "RUN_WIN":
+            self.draw_run_win_screen(self.render_surface)
+
+        for popup in self.floating_texts[:]:
+            popup.update()
+            popup.draw(self.render_surface)
+            if popup.alpha <= 0:
+                self.floating_texts.remove(popup)
+
+        offset_x, offset_y = 0, 0
+        if self.shake_timer > 0:
+            self.shake_timer -= 1
+            offset_x = random.randint(-self.shake_intensity, self.shake_intensity)
+            offset_y = random.randint(-self.shake_intensity, self.shake_intensity)
+
+        target_screen.fill((0, 0, 0))
+        target_screen.blit(self.render_surface, (offset_x, offset_y))
+
+    def draw_lobby_screen(self, surface):
+        """พื้นหลัง Lobby สวยงาม มีมิติ (Dynamic Neon Grid & Particles)"""
+        # 1. วาดเส้นกริดเคลื่อนไหว (Moving Grid Lines)
+        self.grid_offset_y = (self.grid_offset_y + 0.5) % 40
+        grid_color = (35, 45, 60)
+        
+        for x in range(0, SCREEN_WIDTH, 40):
+            pygame.draw.line(surface, grid_color, (x, 0), (x, SCREEN_HEIGHT))
+        for y in range(int(self.grid_offset_y) - 40, SCREEN_HEIGHT, 40):
+            pygame.draw.line(surface, grid_color, (0, y), (SCREEN_WIDTH, y))
+
+        # 2. วาดละอองเรืองแสง (Glowing Particles)
+        for p in self.lobby_particles:
+            p.update()
+            p.draw(surface)
+
+        # 3. วาดการ์ดโปร่งแสงตรงกลาง (Central Vignette Panel)
+        center_panel = pygame.Surface((600, 350), pygame.SRCALPHA)
+        center_panel.fill((18, 22, 30, 220))
+        surface.blit(center_panel, (200, 175))
+        pygame.draw.rect(surface, COLOR_ACCENT, (200, 175, 600, 350), width=2, border_radius=16)
+
+        # 4. แสดงชื่อเกม "BINGO ROGUE"
+        title = FONT_TITLE.render("BINGO ROGUE", True, COLOR_ACCENT)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 270))
+        surface.blit(title, title_rect)
+
+        # 5. วาดปุ่มกดเริ่มเกม (START GAME)
+        start_btn = pygame.Rect(350, 420, 300, 70)
+        mouse_pos = pygame.mouse.get_pos()
+        btn_color = (41, 128, 185) if start_btn.collidepoint(mouse_pos) else COLOR_BUTTON
+        
+        pygame.draw.rect(surface, btn_color, start_btn, border_radius=12)
+        pygame.draw.rect(surface, (255, 255, 255), start_btn, width=2, border_radius=12)
+
+        btn_txt = FONT_LARGE.render("START GAME", True, COLOR_TEXT)
+        surface.blit(btn_txt, btn_txt.get_rect(center=start_btn.center))
+
+    def draw_playing_screen(self, surface):
+        self.board.draw(surface)
+
+        score_txt = FONT_LARGE.render(f"Score: {self.score} / {self.target_score}", True, COLOR_ACCENT)
+        surface.blit(score_txt, (80, 40))
+
+        bag_count = 24 + self.bag_filler_count
+        info_txt = FONT_MAIN.render(f"Ante: {self.ante}/5  |  Draws Left: {self.hands_left}  |  Money: ${self.money}  |  Bag: {bag_count} Balls", True, COLOR_TEXT)
+        surface.blit(info_txt, (80, 95))
+
+        label_balls = FONT_MAIN.render("Drawn Balls (Click to Mark):", True, COLOR_TEXT)
+        surface.blit(label_balls, (540, 380))
+
+        for rect, ball in self.drawn_ball_rects:
+            pygame.draw.ellipse(surface, COLOR_BALL, rect)
+            pygame.draw.ellipse(surface, (255, 255, 255), rect, width=2)
+            txt = FONT_MAIN.render(str(ball), True, COLOR_TEXT)
+            txt_rect = txt.get_rect(center=rect.center)
+            surface.blit(txt, txt_rect)
+
+        btn_color = COLOR_BUTTON if self.hands_left > 0 else (100, 100, 100)
+        pygame.draw.rect(surface, btn_color, self.draw_button, border_radius=10)
+        btn_txt = FONT_MAIN.render("REROLL / NEXT HAND", True, COLOR_TEXT)
+        btn_rect = btn_txt.get_rect(center=self.draw_button.center)
+        surface.blit(btn_txt, btn_rect)
+
+        joker_title = FONT_MAIN.render("Active Jokers:", True, COLOR_ACCENT)
+        surface.blit(joker_title, (540, 160))
+        for i, joker in enumerate(self.jokers):
+            j_rect = pygame.Rect(540, 200 + i * 70, 380, 60)
+            pygame.draw.rect(surface, COLOR_CARD, j_rect, border_radius=8)
+            
+            count_str = f" (x{joker.count})" if joker.count > 1 else ""
+            name_txt = FONT_MAIN.render(f"{joker.name}{count_str}", True, COLOR_ACCENT)
+            desc_txt = FONT_SMALL.render(joker.description, True, COLOR_TEXT)
+            surface.blit(name_txt, (j_rect.x + 10, j_rect.y + 8))
+            surface.blit(desc_txt, (j_rect.x + 10, j_rect.y + 32))
+
+    def draw_shop_screen(self, surface):
+        title = FONT_TITLE.render("STAGE CLEAR - SHOP", True, COLOR_GREEN)
+        surface.blit(title, (230, 60))
+
+        money_txt = FONT_LARGE.render(f"Current Money: ${self.money}", True, COLOR_ACCENT)
+        surface.blit(money_txt, (360, 140))
+
+        if len(self.shop_items) > 0:
+            item = self.shop_items[0]
+            btn1 = pygame.Rect(180, 240, 300, 140)
+            btn_color = COLOR_CARD if self.money >= item.cost else (80, 50, 50)
+            pygame.draw.rect(surface, btn_color, btn1, border_radius=10)
+            pygame.draw.rect(surface, COLOR_ACCENT, btn1, width=2, border_radius=10)
+            
+            name_txt = FONT_MAIN.render(f"{item.name} (${item.cost})", True, COLOR_ACCENT)
+            desc_txt = FONT_SMALL.render(item.description, True, COLOR_TEXT)
+            surface.blit(name_txt, (btn1.x + 15, btn1.y + 20))
+            surface.blit(desc_txt, (btn1.x + 15, btn1.y + 60))
+
+        if len(self.shop_items) > 1:
+            item = self.shop_items[1]
+            btn2 = pygame.Rect(520, 240, 300, 140)
+            btn_color = COLOR_CARD if self.money >= item.cost else (80, 50, 50)
+            pygame.draw.rect(surface, btn_color, btn2, border_radius=10)
+            pygame.draw.rect(surface, COLOR_ACCENT, btn2, width=2, border_radius=10)
+            
+            name_txt = FONT_MAIN.render(f"{item.name} (${item.cost})", True, COLOR_ACCENT)
+            desc_txt = FONT_SMALL.render(item.description, True, COLOR_TEXT)
+            surface.blit(name_txt, (btn2.x + 15, btn2.y + 20))
+            surface.blit(desc_txt, (btn2.x + 15, btn2.y + 60))
+
+        next_btn = pygame.Rect(350, 480, 300, 60)
+        pygame.draw.rect(surface, COLOR_BUTTON, next_btn, border_radius=10)
+        next_txt = FONT_MAIN.render("NEXT ANTE", True, COLOR_TEXT)
+        surface.blit(next_txt, (next_btn.x + 95, next_btn.y + 18))
+
+    def draw_game_over_screen(self, surface):
+        title = FONT_TITLE.render("GAME OVER", True, COLOR_RED)
+        surface.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, 200)))
+
+        score_txt = FONT_LARGE.render(f"Final Score: {self.score} / {self.target_score}", True, COLOR_TEXT)
+        surface.blit(score_txt, score_txt.get_rect(center=(SCREEN_WIDTH // 2, 290)))
+
+        retry_btn = pygame.Rect(190, 400, 280, 60)
+        pygame.draw.rect(surface, COLOR_GREEN, retry_btn, border_radius=10)
+        btn1_txt = FONT_MAIN.render("RETRY", True, COLOR_TEXT)
+        surface.blit(btn1_txt, btn1_txt.get_rect(center=retry_btn.center))
+
+        menu_btn = pygame.Rect(530, 400, 280, 60)
+        pygame.draw.rect(surface, COLOR_BUTTON, menu_btn, border_radius=10)
+        btn2_txt = FONT_MAIN.render("MAIN MENU", True, COLOR_TEXT)
+        surface.blit(btn2_txt, btn2_txt.get_rect(center=menu_btn.center))
+
+    def draw_run_win_screen(self, surface):
+        title = FONT_TITLE.render("VICTORY! RUN COMPLETE!", True, COLOR_ACCENT)
+        surface.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, 200)))
+
+        money_txt = FONT_LARGE.render(f"Final Money: ${self.money}", True, COLOR_TEXT)
+        surface.blit(money_txt, money_txt.get_rect(center=(SCREEN_WIDTH // 2, 290)))
+
+        retry_btn = pygame.Rect(190, 400, 280, 60)
+        pygame.draw.rect(surface, COLOR_GREEN, retry_btn, border_radius=10)
+        btn1_txt = FONT_MAIN.render("PLAY AGAIN", True, COLOR_TEXT)
+        surface.blit(btn1_txt, btn1_txt.get_rect(center=retry_btn.center))
+
+        menu_btn = pygame.Rect(530, 400, 280, 60)
+        pygame.draw.rect(surface, COLOR_BUTTON, menu_btn, border_radius=10)
+        btn2_txt = FONT_MAIN.render("MAIN MENU", True, COLOR_TEXT)
+        surface.blit(btn2_txt, btn2_txt.get_rect(center=menu_btn.center))
+
+
+def main():
+    clock = pygame.time.Clock()
+    game = GameManager()
+
+    running = True
+    while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                return False
+                running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                game.handle_click(event.pos)
 
-            # กดปุ่มสุ่มลูกบอล
-            if self.btn_draw.is_clicked(event) and not self.is_won:
-                ball = self.caller.draw_ball()
-                # ถ้าเปิดโหมด Auto ให้กาให้อัตโนมัติทันที
-                if ball and self.auto_mode:
-                    self.card.mark_number(ball)
-                    if self.card.check_bingo():
-                        self.is_won = True
-
-            # กดปุ่มสลับโหมด Auto / Manual
-            if self.btn_mode.is_clicked(event):
-                self.auto_mode = not self.auto_mode
-                self.btn_mode.text = "Auto: ON" if self.auto_mode else "Auto: OFF"
-                
-                # หากสลับมาเป็น Auto ให้ช่วยกากบาทตัวเลขที่เคยสุ่มออกไปแล้วทั้งหมดทันที
-                if self.auto_mode:
-                    for b in self.caller.called_numbers:
-                        self.card.mark_number(b)
-                    if self.card.check_bingo():
-                        self.is_won = True
-
-            # กดปุ่มเริ่มเกมใหม่
-            if self.btn_reset.is_clicked(event):
-                self.card.reset_card()
-                self.caller.reset()
-                self.is_won = False
-
-            # คลิกเลือกช่องบนตารางบิงโก (ทำงานในโหมด Manual)
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and not self.is_won:
-                mouse_pos = event.pos
-                for col in range(GRID_SIZE):
-                    for row in range(GRID_SIZE):
-                        x = GRID_X + col * CELL_SIZE
-                        y = GRID_Y + row * CELL_SIZE
-                        cell_rect = pygame.Rect(x, y, CELL_SIZE - 5, CELL_SIZE - 5)
-
-                        if cell_rect.collidepoint(mouse_pos):
-                            if self.card.try_mark_cell(row, col, self.caller.called_numbers):
-                                if self.card.check_bingo():
-                                    self.is_won = True
-
-        return True
-
-    def draw_card(self):
-        headers = ['B', 'I', 'N', 'G', 'O']
-        for col in range(GRID_SIZE):
-            column_color = BINGO_COLORS[col]
-
-            header_rect = pygame.Rect(GRID_X + col * CELL_SIZE, GRID_Y - 45, CELL_SIZE - 5, 40)
-            pygame.draw.rect(self.screen, column_color, header_rect, border_radius=5)
-            h_text = self.font.render(headers[col], True, (255, 255, 255))
-            self.screen.blit(h_text, h_text.get_rect(center=header_rect.center))
-
-            for row in range(GRID_SIZE):
-                x = GRID_X + col * CELL_SIZE
-                y = GRID_Y + row * CELL_SIZE
-                rect = pygame.Rect(x, y, CELL_SIZE - 5, CELL_SIZE - 5)
-
-                is_marked = self.card.marked[row][col]
-                bg_color = column_color if is_marked else CELL_BG
-                txt_color = MARKED_TEXT if is_marked else CELL_TEXT
-
-                pygame.draw.rect(self.screen, bg_color, rect, border_radius=8)
-                pygame.draw.rect(self.screen, HEADER_COLOR, rect, width=1, border_radius=8)
-
-                val = str(self.card.grid[row][col])
-                f = self.small_font if val == "FREE" else self.font
-                val_text = f.render(val, True, txt_color)
-                self.screen.blit(val_text, val_text.get_rect(center=rect.center))
-
-    def draw_caller_panel(self):
-        panel_rect = pygame.Rect(500, 250, 340, 325)
-        pygame.draw.rect(self.screen, PANEL_BG, panel_rect, border_radius=12)
-        pygame.draw.rect(self.screen, (200, 200, 200), panel_rect, width=2, border_radius=12)
-
-        title = self.font.render("Current Ball", True, TEXT_COLOR)
-        self.screen.blit(title, (panel_rect.x + 20, panel_rect.y + 15))
-
-        ball_color = self.caller.get_ball_color(self.caller.current_ball)
-        circle_center = (panel_rect.x + 170, panel_rect.y + 110)
-        pygame.draw.circle(self.screen, ball_color, circle_center, 55)
-
-        current_val = self.caller.get_ball_label(self.caller.current_ball)
-        ball_text = self.title_font.render(current_val, True, (255, 255, 255))
-        self.screen.blit(ball_text, ball_text.get_rect(center=circle_center))
-
-        history_title = self.small_font.render("Recent Calls:", True, TEXT_COLOR)
-        self.screen.blit(history_title, (panel_rect.x + 20, panel_rect.y + 185))
-
-        history = [self.caller.get_ball_label(b) for b in self.caller.called_numbers[-5:][::-1]]
-        hist_str = ", ".join(history) if history else "None"
-        hist_text = self.small_font.render(hist_str, True, (100, 100, 100))
-        self.screen.blit(hist_text, (panel_rect.x + 20, panel_rect.y + 215))
-
-        if self.is_won:
-            win_text = self.title_font.render("BINGO! YOU WIN!", True, BINGO_COLORS[3])
-            self.screen.blit(win_text, win_text.get_rect(center=(panel_rect.x + 170, panel_rect.y + 270)))
-
-    def draw(self):
-        self.screen.fill(BG_COLOR)
-
-        title = self.title_font.render("BINGO GAME", True, HEADER_COLOR)
-        self.screen.blit(title, (GRID_X, 40))
-
-        self.draw_card()
-        self.draw_caller_panel()
-        self.btn_draw.draw(self.screen, self.font)
-        self.btn_mode.draw(self.screen, self.font)
-        self.btn_reset.draw(self.screen, self.font)
-
+        game.draw(screen)
         pygame.display.flip()
+        clock.tick(60)
+
+    pygame.quit()
+    sys.exit()
+
 
 if __name__ == "__main__":
-    game = BingoGame()
-    game.run()  
+    main()

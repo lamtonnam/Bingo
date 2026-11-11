@@ -43,7 +43,7 @@ class FloatingText:
         self.y = y
         self.color = color
         self.alpha = 255
-        self.lifetime = 65
+        self.lifetime = 60 #ตั้งไว้ 60 เฟรม
         self.speed_y = -1.5
 
     def update(self):
@@ -159,6 +159,7 @@ class Board:
                 tile.draw(surface)
 
     def get_board_numbers(self):
+        #เอาเลขในบอร์ดใส่ไว้ในถุงสุ่ม
         numbers = []
         for row in self.grid:
             for tile in row:
@@ -179,23 +180,27 @@ class Board:
         bingo_tiles = set()
 
         for r in range(self.size):
+            #เช็กแถวนอน
             if all(self.grid[r][c].is_marked for c in range(self.size)):
                 lines += 1
                 for c in range(self.size):
                     bingo_tiles.add(self.grid[r][c])
 
         for c in range(self.size):
+            #เช็กแถวตั้ง
             if all(self.grid[r][c].is_marked for r in range(self.size)):
                 lines += 1
                 for r in range(self.size):
                     bingo_tiles.add(self.grid[r][c])
 
         if all(self.grid[i][i].is_marked for i in range(self.size)):
+            #เช็กแนวทแยงซ้ายไปขวา
             lines += 1
             for i in range(self.size):
                 bingo_tiles.add(self.grid[i][i])
 
         if all(self.grid[i][self.size - 1 - i].is_marked for i in range(self.size)):
+            #เช็กแนวทแยงขวาไปซ้าย
             lines += 1
             for i in range(self.size):
                 bingo_tiles.add(self.grid[i][self.size - 1 - i])
@@ -246,6 +251,7 @@ class ShopItem:
 
 
 class DivisibleSevenCap:
+    #ฝาขวดที่บัฟแต้มให้เลขหาร 7 ลง
     def __init__(self):
         self.id = "DIV_7_CAP"
         self.name = "Lucky Div 7 Cap"
@@ -260,6 +266,7 @@ class DivisibleSevenCap:
 
 
 class CrosshairCap:
+    #บัฟ 50 score ทุกการกาช่อง
     def __init__(self):
         self.id = "CROSSHAIR_CAP"
         self.name = "Crosshair Cap"
@@ -273,7 +280,7 @@ class CrosshairCap:
 
 
 def draw_bottle_cap_icon(surface, center_x, center_y, radius, color):
-    """วาดฝาขวดเหล็กขอบหยัก"""
+    #วาดฝาขวดเหล็กขอบหยัก
     num_teeth = 16
     points = []
     for i in range(num_teeth * 2):
@@ -573,7 +580,7 @@ class GameManager:
         score_txt = FONT_LARGE.render(f"Score: {self.score} / {self.target_score}", True, COLOR_ACCENT)
         surface.blit(score_txt, (80, 40))
 
-        bag_count = 24 + self.bag_filler_count
+        bag_count = len(self.bag.balls)
         info_txt = FONT_MAIN.render(f"Ante: {self.ante}/5  |  Draws Left: {self.hands_left}  |  Money: ${self.money}  |  Bag: {bag_count} Balls", True, COLOR_TEXT)
         surface.blit(info_txt, (80, 95))
 

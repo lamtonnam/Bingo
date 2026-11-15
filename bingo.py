@@ -384,12 +384,19 @@ class GameManager:
             for rect, ball in self.drawn_ball_rects:
                 if rect.collidepoint(pos):
                     marked_tile = self.board.mark_number(ball)
+
+                    self.bag.remove_ball(ball)
+                    self.update_ball_ui()
+
                     if marked_tile:
-                        self.bag.remove_ball(ball)
-                        self.update_ball_ui()
                         self.score_marked_tile(ball, marked_tile)
-                        self.check_game_over()
-                    break
+                    else:
+                        self.score = max(0,self.score - 10)
+                        self.trigger_shake(8,4)
+                        self.floating_texts.append(FloatingText("-10", rect.centerx,rect.top, COLOR_RED))
+
+                    self.check_game_over()
+                    return
 
         elif self.game_state == "SHOP":
             btn1 = pygame.Rect(180, 240, 300, 140)

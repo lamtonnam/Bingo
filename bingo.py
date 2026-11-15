@@ -9,7 +9,7 @@ pygame.font.init()
 
 SCREEN_WIDTH = 1000
 SCREEN_HEIGHT = 700
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN | pygame.SCALED)
 pygame.display.set_caption("Bingo Rogue")
 
 # --- Colors ---
@@ -417,17 +417,26 @@ class GameManager:
 
     def handle_click(self, pos):
         if self.game_state == "LOBBY":
-            start_btn = pygame.Rect(210, 480, 270, 70)
-            tut_btn = pygame.Rect(520, 480, 270, 70)
+            start_btn = pygame.Rect(210, 450, 270, 70)
+            tut_btn = pygame.Rect(520, 450, 270, 70)
+            quit_btn = pygame.Rect(365, 550, 270, 60)
             if start_btn.collidepoint(pos):
                 self.start_new_game()
             elif tut_btn.collidepoint(pos):
                 self.start_tutorial()
+            elif quit_btn.collidepoint(pos):
+                pygame.quit()
+                sys.exit()
 
         elif self.game_state == "PLAYING":
             if self.is_tutorial:
                 exit_btn = pygame.Rect(830, 35, 130, 40)
                 if exit_btn.collidepoint(pos):
+                    self.game_state = "LOBBY"
+                    return
+            else:
+                menu_btn = pygame.Rect(830, 35, 130, 40)
+                if menu_btn.collidepoint(pos):
                     self.game_state = "LOBBY"
                     return
 
@@ -626,18 +635,18 @@ class GameManager:
         float_y = math.sin(ticks * 2.5) * 10
 
         rotated_cap = pygame.transform.rotate(cap_surf, tilt_angle)
-        cap_rect = rotated_cap.get_rect(center=(SCREEN_WIDTH // 2, 180 + float_y))
+        cap_rect = rotated_cap.get_rect(center=(SCREEN_WIDTH // 2, 175 + float_y))
         surface.blit(rotated_cap, cap_rect)
 
         title_shadow = FONT_TITLE.render("BINGO ROGUE", True, (0, 0, 0))
         title_txt = FONT_TITLE.render("BINGO ROGUE", True, COLOR_ACCENT)
 
-        surface.blit(title_shadow, title_shadow.get_rect(center=(SCREEN_WIDTH // 2 + 4, 344)))
-        surface.blit(title_txt, title_txt.get_rect(center=(SCREEN_WIDTH // 2, 340)))
+        surface.blit(title_shadow, title_shadow.get_rect(center=(SCREEN_WIDTH // 2 + 4, 334)))
+        surface.blit(title_txt, title_txt.get_rect(center=(SCREEN_WIDTH // 2, 330)))
 
         mouse_pos = pygame.mouse.get_pos()
 
-        start_btn = pygame.Rect(210, 480, 270, 70)
+        start_btn = pygame.Rect(210, 450, 270, 70)
         btn_color = (41, 128, 185) if start_btn.collidepoint(mouse_pos) else COLOR_BUTTON
         pygame.draw.rect(surface, (0, 0, 0), (start_btn.x + 4, start_btn.y + 4, start_btn.width, start_btn.height), border_radius=12)
         pygame.draw.rect(surface, btn_color, start_btn, border_radius=12)
@@ -645,13 +654,21 @@ class GameManager:
         btn_txt = FONT_LARGE.render("START GAME", True, COLOR_TEXT)
         surface.blit(btn_txt, btn_txt.get_rect(center=start_btn.center))
 
-        tut_btn = pygame.Rect(520, 480, 270, 70)
+        tut_btn = pygame.Rect(520, 450, 270, 70)
         tut_color = (60, 70, 90) if tut_btn.collidepoint(mouse_pos) else COLOR_CARD
         pygame.draw.rect(surface, (0, 0, 0), (tut_btn.x + 4, tut_btn.y + 4, tut_btn.width, tut_btn.height), border_radius=12)
         pygame.draw.rect(surface, tut_color, tut_btn, border_radius=12)
         pygame.draw.rect(surface, COLOR_ACCENT, tut_btn, width=2, border_radius=12)
         tut_txt = FONT_LARGE.render("TUTORIAL", True, COLOR_ACCENT)
         surface.blit(tut_txt, tut_txt.get_rect(center=tut_btn.center))
+
+        quit_btn = pygame.Rect(365, 550, 270, 60)
+        quit_color = (192, 57, 43) if quit_btn.collidepoint(mouse_pos) else COLOR_RED
+        pygame.draw.rect(surface, (0, 0, 0), (quit_btn.x + 4, quit_btn.y + 4, quit_btn.width, quit_btn.height), border_radius=12)
+        pygame.draw.rect(surface, quit_color, quit_btn, border_radius=12)
+        pygame.draw.rect(surface, (255, 255, 255), quit_btn, width=2, border_radius=12)
+        quit_txt = FONT_LARGE.render("QUIT GAME", True, COLOR_TEXT)
+        surface.blit(quit_txt, quit_txt.get_rect(center=quit_btn.center))
 
     def draw_playing_screen(self, surface):
         self.board.draw(surface)
@@ -702,6 +719,11 @@ class GameManager:
             surface.blit(FONT_MAIN.render(t1, True, (255, 230, 80)), (guide_rect.x + 24, guide_rect.y + 20))
             t2_color = (255, 110, 110) if self.tutorial_step == 0 else COLOR_TEXT
             surface.blit(FONT_MAIN.render(t2, True, t2_color), (guide_rect.x + 24, guide_rect.y + 56))
+        else:
+            menu_btn = pygame.Rect(830, 35, 130, 40)
+            pygame.draw.rect(surface, COLOR_RED, menu_btn, border_radius=8)
+            m_txt = FONT_SMALL.render("MAIN MENU", True, COLOR_TEXT)
+            surface.blit(m_txt, m_txt.get_rect(center=menu_btn.center))
 
         label_balls = FONT_MAIN.render("Drawn Balls (Click to Mark):", True, COLOR_TEXT)
         surface.blit(label_balls, (540, 380))
@@ -821,6 +843,8 @@ def main():
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 running = False
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 game.handle_click(event.pos)

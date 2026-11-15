@@ -670,9 +670,24 @@ class GameManager:
             ex_txt = FONT_SMALL.render("EXIT TUTORIAL", True, COLOR_TEXT)
             surface.blit(ex_txt, ex_txt.get_rect(center=exit_btn.center))
 
-            guide_rect = pygame.Rect(80, 595, 840, 80)
-            pygame.draw.rect(surface, COLOR_CARD, guide_rect, border_radius=10)
-            pygame.draw.rect(surface, COLOR_ACCENT, guide_rect, width=2, border_radius=10)
+            ticks = pygame.time.get_ticks()
+            pulse = (math.sin(ticks * 0.01) + 1) / 2
+            border_col = (
+                int(255),
+                int(198 + (255 - 198) * pulse),
+                int(0 + 180 * pulse)
+            )
+            bg_col = (45, 38, 18)
+
+            guide_rect = pygame.Rect(60, 582, 880, 102)
+            pygame.draw.rect(surface, (0, 0, 0), (guide_rect.x + 5, guide_rect.y + 5, guide_rect.width, guide_rect.height), border_radius=14)
+            pygame.draw.rect(surface, bg_col, guide_rect, border_radius=14)
+            pygame.draw.rect(surface, border_col, guide_rect, width=4, border_radius=14)
+
+            badge_rect = pygame.Rect(guide_rect.x + 18, guide_rect.y - 14, 165, 26)
+            pygame.draw.rect(surface, border_col, badge_rect, border_radius=6)
+            badge_txt = FONT_SMALL.render("TUTORIAL GUIDE", True, (18, 22, 30))
+            surface.blit(badge_txt, badge_txt.get_rect(center=badge_rect.center))
 
             if self.tutorial_step == 0:
                 t1 = "STEP 1: Click balls matching your board (10, 22, 55, 70)."
@@ -684,8 +699,9 @@ class GameManager:
                 t1 = "BINGO! Completing lines multiplies your score."
                 t2 = "Reach 400 Score to enter the Shop!"
 
-            surface.blit(FONT_MAIN.render(t1, True, COLOR_ACCENT), (100, 608))
-            surface.blit(FONT_SMALL.render(t2, True, COLOR_TEXT), (100, 642))
+            surface.blit(FONT_MAIN.render(t1, True, (255, 230, 80)), (guide_rect.x + 24, guide_rect.y + 20))
+            t2_color = (255, 110, 110) if self.tutorial_step == 0 else COLOR_TEXT
+            surface.blit(FONT_MAIN.render(t2, True, t2_color), (guide_rect.x + 24, guide_rect.y + 56))
 
         label_balls = FONT_MAIN.render("Drawn Balls (Click to Mark):", True, COLOR_TEXT)
         surface.blit(label_balls, (540, 380))
@@ -726,8 +742,11 @@ class GameManager:
         surface.blit(money_txt, (360, 150))
 
         if self.is_tutorial:
-            tip_txt = FONT_MAIN.render("Buy an upgrade below, then click FINISH TUTORIAL to return to Menu.", True, COLOR_TEXT)
-            surface.blit(tip_txt, tip_txt.get_rect(center=(SCREEN_WIDTH // 2, 205)))
+            tip_box = pygame.Rect(140, 192, 720, 36)
+            pygame.draw.rect(surface, (45, 38, 18), tip_box, border_radius=8)
+            pygame.draw.rect(surface, COLOR_ACCENT, tip_box, width=2, border_radius=8)
+            tip_txt = FONT_MAIN.render("Buy an upgrade below, then click FINISH TUTORIAL to return to Menu.", True, (255, 230, 80))
+            surface.blit(tip_txt, tip_txt.get_rect(center=tip_box.center))
 
         if len(self.shop_items) > 0:
             item = self.shop_items[0]

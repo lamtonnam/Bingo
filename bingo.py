@@ -127,15 +127,18 @@ class Tile:
 
 
 class Board:
-    def __init__(self, start_x, start_y, existing_mods, size=5, tile_size=75, gap=8):
+    def __init__(self, start_x, start_y, existing_mods, size=5, tile_size=75, gap=8, fixed_numbers=None):
         self.size = size
         self.grid = []
         
-        col_ranges = [(1, 15), (16, 30), (31, 45), (46, 60), (61, 75)]
-        board_numbers = []
-        for r in col_ranges:
-            nums = random.sample(range(r[0], r[1] + 1), 5)
-            board_numbers.append(nums)
+        if fixed_numbers:
+            board_numbers = fixed_numbers
+        else:
+            col_ranges = [(1, 15), (16, 30), (31, 45), (46, 60), (61, 75)]
+            board_numbers = []
+            for r in col_ranges:
+                nums = random.sample(range(r[0], r[1] + 1), 5)
+                board_numbers.append(nums)
 
         for row in range(size):
             row_tiles = []
@@ -212,12 +215,18 @@ class Board:
 
 
 class BallBag:
-    def __init__(self, guaranteed_numbers, filler_count=16):
+    def __init__(self, guaranteed_numbers, filler_count=16, fixed_sequence=None):
         self.guaranteed_numbers = guaranteed_numbers
         self.filler_count = filler_count
+        self.fixed_sequence = fixed_sequence
         self.reset()
 
     def reset(self):
+        if self.fixed_sequence:
+            self.balls = list(reversed(self.fixed_sequence))
+            self.current_drawn = []
+            return
+
         pool = list(self.guaranteed_numbers)
         other_numbers = [n for n in range(1, 76) if n not in pool]
         
@@ -298,6 +307,8 @@ def draw_bottle_cap_icon(surface, center_x, center_y, radius, color):
 class GameManager:
     def __init__(self):
         self.game_state = "LOBBY"
+        self.is_tutorial = False
+        self.tutorial_step = 0
         self.ante = 1
         self.money = 15
         self.bottle_caps = [DivisibleSevenCap()]
@@ -314,6 +325,7 @@ class GameManager:
         self.render_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
 
     def start_new_game(self):
+        self.is_tutorial = False
         self.ante = 1
         self.money = 15
         self.bottle_caps = [DivisibleSevenCap()]
@@ -321,6 +333,39 @@ class GameManager:
         self.board_mods = {}
         self.game_state = "PLAYING"
         self.reset_round()
+
+    def start_tutorial(self):
+        self.is_tutorial = True
+        self.tutorial_step = 0
+        self.ante = 1
+        self.money = 10
+        self.bottle_caps = [CrosshairCap()]
+        self.bag_filler_count = 0
+        self.board_mods = {(2, 1): "RED"}
+
+        fixed_board = [
+            [1, 5, 10, 12, 14],
+            [16, 20, 22, 25, 29],
+            [31, 35, 0, 40, 44],
+            [46, 50, 55, 58, 60],
+            [61, 65, 70, 72, 75]
+        ]
+        fixed_balls = [10, 22, 55, 70, 13, 5, 20, 35, 50, 65]
+
+        self.board = Board(start_x=80, start_y=160, existing_mods=self.board_mods, fixed_numbers=fixed_board)
+        board_nums = self.board.get_board_numbers()
+        self.bag = BallBag(board_nums, filler_count=0, fixed_sequence=fixed_balls)
+
+        self.score = 0
+        self.target_score = 400
+        self.hands_left = 3
+        self.last_bingo_count = 0
+        self.draw_button = pygame.Rect(540, 520, 380, 50)
+        self.drawn_ball_rects = []
+        self.floating_texts.clear()
+        self.refresh_shop()
+        self.roll_balls()
+        self.game_state = "PLAYING"
 
     def reset_round(self):
         self.board = Board(start_x=80, start_y=160, existing_mods=self.board_mods)
@@ -372,11 +417,20 @@ class GameManager:
 
     def handle_click(self, pos):
         if self.game_state == "LOBBY":
-            start_btn = pygame.Rect(350, 480, 300, 70)
+            start_btn = pygame.Rect(210, 480, 270, 70)
+            tut_btn = pygame.Rect(520, 480, 270, 70)
             if start_btn.collidepoint(pos):
                 self.start_new_game()
+            elif tut_btn.collidepoint(pos):
+                self.start_tutorial()
 
         elif self.game_state == "PLAYING":
+            if self.is_tutorial:
+                exit_btn = pygame.Rect(830, 35, 130, 40)
+                if exit_btn.collidepoint(pos):
+                    self.game_state = "LOBBY"
+                    return
+
             if self.draw_button.collidepoint(pos):
                 self.roll_balls()
                 return
@@ -390,6 +444,8 @@ class GameManager:
 
                     if marked_tile:
                         self.score_marked_tile(ball, marked_tile)
+                        if self.is_tutorial and self.tutorial_step == 0:
+                            self.tutorial_step = 1
                     else:
                         self.score = max(0,self.score - 10)
                         self.trigger_shake(8,4)
@@ -409,6 +465,10 @@ class GameManager:
 
             next_btn = pygame.Rect(350, 480, 300, 60)
             if next_btn.collidepoint(pos):
+                if self.is_tutorial:
+                    self.game_state = "LOBBY"
+                    return
+
                 self.ante += 1
                 if self.ante > 5:
                     self.game_state = "RUN_WIN"
@@ -419,7 +479,10 @@ class GameManager:
         elif self.game_state in ["GAME_OVER", "RUN_WIN"]:
             retry_btn = pygame.Rect(190, 400, 280, 60)
             if retry_btn.collidepoint(pos):
-                self.start_new_game()
+                if self.is_tutorial:
+                    self.start_tutorial()
+                else:
+                    self.start_new_game()
 
             menu_btn = pygame.Rect(530, 400, 280, 60)
             if menu_btn.collidepoint(pos):
@@ -462,6 +525,8 @@ class GameManager:
             new_lines = current_bingos - self.last_bingo_count
             self.trigger_shake(duration=15 + (new_lines * 5), intensity=6 + (new_lines * 3))
             self.last_bingo_count = current_bingos
+            if self.is_tutorial:
+                self.tutorial_step = 2
 
         mult = 1 + current_bingos
 
@@ -570,16 +635,23 @@ class GameManager:
         surface.blit(title_shadow, title_shadow.get_rect(center=(SCREEN_WIDTH // 2 + 4, 344)))
         surface.blit(title_txt, title_txt.get_rect(center=(SCREEN_WIDTH // 2, 340)))
 
-        start_btn = pygame.Rect(350, 480, 300, 70)
         mouse_pos = pygame.mouse.get_pos()
-        btn_color = (41, 128, 185) if start_btn.collidepoint(mouse_pos) else COLOR_BUTTON
 
+        start_btn = pygame.Rect(210, 480, 270, 70)
+        btn_color = (41, 128, 185) if start_btn.collidepoint(mouse_pos) else COLOR_BUTTON
         pygame.draw.rect(surface, (0, 0, 0), (start_btn.x + 4, start_btn.y + 4, start_btn.width, start_btn.height), border_radius=12)
         pygame.draw.rect(surface, btn_color, start_btn, border_radius=12)
         pygame.draw.rect(surface, (255, 255, 255), start_btn, width=2, border_radius=12)
-
         btn_txt = FONT_LARGE.render("START GAME", True, COLOR_TEXT)
         surface.blit(btn_txt, btn_txt.get_rect(center=start_btn.center))
+
+        tut_btn = pygame.Rect(520, 480, 270, 70)
+        tut_color = (60, 70, 90) if tut_btn.collidepoint(mouse_pos) else COLOR_CARD
+        pygame.draw.rect(surface, (0, 0, 0), (tut_btn.x + 4, tut_btn.y + 4, tut_btn.width, tut_btn.height), border_radius=12)
+        pygame.draw.rect(surface, tut_color, tut_btn, border_radius=12)
+        pygame.draw.rect(surface, COLOR_ACCENT, tut_btn, width=2, border_radius=12)
+        tut_txt = FONT_LARGE.render("TUTORIAL", True, COLOR_ACCENT)
+        surface.blit(tut_txt, tut_txt.get_rect(center=tut_btn.center))
 
     def draw_playing_screen(self, surface):
         self.board.draw(surface)
@@ -588,8 +660,32 @@ class GameManager:
         surface.blit(score_txt, (80, 40))
 
         bag_count = len(self.bag.balls)
-        info_txt = FONT_MAIN.render(f"Ante: {self.ante}/5  |  Draws Left: {self.hands_left}  |  Money: ${self.money}  |  Bag: {bag_count} Balls", True, COLOR_TEXT)
+        mode_str = "TUTORIAL" if self.is_tutorial else f"Ante: {self.ante}/5"
+        info_txt = FONT_MAIN.render(f"{mode_str}  |  Draws Left: {self.hands_left}  |  Money: ${self.money}  |  Bag: {bag_count} Balls", True, COLOR_TEXT)
         surface.blit(info_txt, (80, 95))
+
+        if self.is_tutorial:
+            exit_btn = pygame.Rect(830, 35, 130, 40)
+            pygame.draw.rect(surface, COLOR_RED, exit_btn, border_radius=8)
+            ex_txt = FONT_SMALL.render("EXIT TUTORIAL", True, COLOR_TEXT)
+            surface.blit(ex_txt, ex_txt.get_rect(center=exit_btn.center))
+
+            guide_rect = pygame.Rect(80, 595, 840, 80)
+            pygame.draw.rect(surface, COLOR_CARD, guide_rect, border_radius=10)
+            pygame.draw.rect(surface, COLOR_ACCENT, guide_rect, width=2, border_radius=10)
+
+            if self.tutorial_step == 0:
+                t1 = "STEP 1: Click balls matching your board (10, 22, 55, 70)."
+                t2 = "WARNING: Clicking ball '13' (not on board) deducts -10 Score!"
+            elif self.tutorial_step == 1:
+                t1 = "STEP 2: Mark the rest of the middle row (including RED +5 Mult tile)"
+                t2 = "to complete a BINGO line and reach 400 Target Score!"
+            else:
+                t1 = "BINGO! Completing lines multiplies your score."
+                t2 = "Reach 400 Score to enter the Shop!"
+
+            surface.blit(FONT_MAIN.render(t1, True, COLOR_ACCENT), (100, 608))
+            surface.blit(FONT_SMALL.render(t2, True, COLOR_TEXT), (100, 642))
 
         label_balls = FONT_MAIN.render("Drawn Balls (Click to Mark):", True, COLOR_TEXT)
         surface.blit(label_balls, (540, 380))
@@ -622,11 +718,16 @@ class GameManager:
             surface.blit(desc_txt, (c_rect.x + 60, c_rect.y + 32))
 
     def draw_shop_screen(self, surface):
-        title = FONT_TITLE.render("STAGE CLEAR - SHOP", True, COLOR_GREEN)
-        surface.blit(title, (200, 60))
+        title_str = "TUTORIAL - SHOP" if self.is_tutorial else "STAGE CLEAR - SHOP"
+        title = FONT_TITLE.render(title_str, True, COLOR_GREEN)
+        surface.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, 95)))
 
         money_txt = FONT_LARGE.render(f"Current Money: ${self.money}", True, COLOR_ACCENT)
-        surface.blit(money_txt, (360, 140))
+        surface.blit(money_txt, (360, 150))
+
+        if self.is_tutorial:
+            tip_txt = FONT_MAIN.render("Buy an upgrade below, then click FINISH TUTORIAL to return to Menu.", True, COLOR_TEXT)
+            surface.blit(tip_txt, tip_txt.get_rect(center=(SCREEN_WIDTH // 2, 205)))
 
         if len(self.shop_items) > 0:
             item = self.shop_items[0]
@@ -654,8 +755,9 @@ class GameManager:
 
         next_btn = pygame.Rect(350, 480, 300, 60)
         pygame.draw.rect(surface, COLOR_BUTTON, next_btn, border_radius=10)
-        next_txt = FONT_MAIN.render("NEXT ANTE", True, COLOR_TEXT)
-        surface.blit(next_txt, (next_btn.x + 95, next_btn.y + 18))
+        next_label = "FINISH TUTORIAL" if self.is_tutorial else "NEXT ANTE"
+        next_txt = FONT_MAIN.render(next_label, True, COLOR_TEXT)
+        surface.blit(next_txt, next_txt.get_rect(center=next_btn.center))
 
     def draw_game_over_screen(self, surface):
         title = FONT_TITLE.render("GAME OVER", True, COLOR_RED)
